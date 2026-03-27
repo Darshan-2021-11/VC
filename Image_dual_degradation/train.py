@@ -204,7 +204,7 @@ def main():
     print("resume_path: " + resume_path)
     if resume_path:
         print(f"\nResuming from: {resume_path}")
-        ckpt = torch.load(resume_path, map_location=device)
+        ckpt = torch.load(resume_path, map_location=device, weights_only=False)
         if isinstance(ckpt, dict):
             model.load_state_dict(ckpt["model"])
             if "optimizer"   in ckpt: optimizer.load_state_dict(ckpt["optimizer"])
