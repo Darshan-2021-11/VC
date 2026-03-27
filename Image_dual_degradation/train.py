@@ -52,7 +52,7 @@ def get_args():
                    help="Path to Training_Dataset folder")
     p.add_argument("--local_ckpt", type=str, default="./checkpoints",
                    help="Local folder to write checkpoint files")
-    p.add_argument("--drive_ckpt", type=str, default="",
+    p.add_argument("--drive_ckpt", type=str, default="/content/drive/MyDrive/ConvIR_checkpoints/dual_degradation",
                    help="Google Drive folder to mirror checkpoints into. "
                         "Leave empty when running locally.")
     p.add_argument("--resume",     type=str, default="",
