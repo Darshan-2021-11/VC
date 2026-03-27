@@ -201,6 +201,7 @@ def main():
     best_loss   = float("inf")
 
     resume_path = args.resume or find_latest_checkpoint(args.drive_ckpt, args.local_ckpt)
+    print("resume_path: " + resume_path)
     if resume_path:
         print(f"\nResuming from: {resume_path}")
         ckpt = torch.load(resume_path, map_location=device)
