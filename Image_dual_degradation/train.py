@@ -112,20 +112,31 @@ def save_checkpoint(state: dict, epoch: int, loss: float,
                     local_dir: str, drive_dir: str, is_best: bool):
     os.makedirs(local_dir, exist_ok=True)
 
-    # Epoch checkpoint
+    # ── Save locally ─────────────────────────────
     epoch_name = f"epoch_{epoch:04d}.pth"
     local_path = os.path.join(local_dir, epoch_name)
     torch.save(state, local_path)
-    _drive_copy(local_path, drive_dir)
-    print(f"  [ckpt] epoch {epoch:04d} saved  (loss={loss:.5f})"
-          + (f"  → Drive" if drive_dir else ""))
 
-    # Best model (state_dict only — smaller file)
+    print(f"  [ckpt] epoch {epoch:04d} saved locally (loss={loss:.5f})")
+
+    # ── Save directly to Drive ───────────────────
+    if drive_dir:
+        os.makedirs(drive_dir, exist_ok=True)
+        drive_path = os.path.join(drive_dir, epoch_name)
+        torch.save(state, drive_path)
+        print(f"  [drive] saved → {drive_path}")
+
+    # ── Best model ───────────────────────────────
     if is_best:
         best_local = os.path.join(local_dir, "best_model.pth")
         torch.save(state["model"], best_local)
-        _drive_copy(best_local, drive_dir)
-        print(f"  [best] new best loss={loss:.5f}  → saved best_model.pth")
+
+        print(f"  [best] new best loss={loss:.5f} (local)")
+
+        if drive_dir:
+            best_drive = os.path.join(drive_dir, "best_model.pth")
+            torch.save(state["model"], best_drive)
+            print(f"  [drive] saved best → {best_drive}")
 
 
 def find_latest_checkpoint(drive_dir: str, local_dir: str) -> str:
