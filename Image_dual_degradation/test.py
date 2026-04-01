@@ -3,6 +3,7 @@ import sys
 import argparse
 import numpy as np
 import torch
+import torch.nn.functional as F   # ✅ ADDED
 from PIL import Image
 from collections import defaultdict
 from skimage.metrics import peak_signal_noise_ratio as calc_psnr
@@ -18,10 +19,22 @@ def get_args():
     p.add_argument("--test_dir", type=str, required=True)
     p.add_argument("--model_path", type=str, required=True)
     p.add_argument("--model_size", type=str, default="S", choices=["S","B","L"])
-    p.add_argument("--result_dir", type=str, default="./results_OTS")
+    p.add_argument("--result_dir", type=str, default="./results")
     p.add_argument("--save_images", action="store_true")
     p.add_argument("--tile", type=int, default=0)
     return p.parse_args()
+
+
+def pad_to_multiple(x, factor=8):
+    _, _, h, w = x.shape
+    new_h = (h + factor - 1) // factor * factor
+    new_w = (w + factor - 1) // factor * factor
+
+    pad_h = new_h - h
+    pad_w = new_w - w
+
+    x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
+    return x, h, w
 
 
 def infer(model, inp, tile):
@@ -63,7 +76,6 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     NUM_RES = {"S":8,"B":16,"L":20}[args.model_size]
 
-    # 🔥 Load model properly (FIXED)
     model = ConvIR(num_res=NUM_RES).to(device)
 
     ckpt = torch.load(args.model_path, map_location=device, weights_only=False)
@@ -85,9 +97,14 @@ def main():
     level_data = defaultdict(lambda: {"psnr":[], "ssim":[]})
 
     for idx in range(len(dataset)):
-        deg, clean, name = dataset[idx]
+        deg, clean, cat, scene, level = dataset[idx]
 
-        restored = infer(model, deg.unsqueeze(0).to(device), args.tile)
+        inp = deg.unsqueeze(0).to(device)
+        inp, orig_h, orig_w = pad_to_multiple(inp, 8)
+
+        restored = infer(model, inp, args.tile)
+
+        restored = restored[:, :, :orig_h, :orig_w]
 
         r_u8 = tensor_to_uint8(restored)
         c_u8 = tensor_to_uint8(clean.unsqueeze(0))
@@ -104,13 +121,12 @@ def main():
             save_dir = os.path.join(args.result_dir, cat, scene)
             os.makedirs(save_dir, exist_ok=True)
             Image.fromarray(r_u8).save(
-                    os.path.join(save_dir, f"{level}_restored.png")
-                    )
+                os.path.join(save_dir, f"{level}_restored.png")
+            )
 
         if (idx+1) % 50 == 0:
             print(f"Processed {idx+1}/{len(dataset)}")
 
-    # 🔥 Compute overall
     all_psnr = []
     all_ssim = []
 
@@ -125,7 +141,6 @@ def main():
     print(f"PSNR: {avg_psnr:.4f}")
     print(f"SSIM: {avg_ssim:.4f}")
 
-    # 🔥 Save metrics
     with open(os.path.join(args.result_dir, "metrics.txt"), "w") as f:
         f.write(f"Average PSNR: {avg_psnr:.4f}\n")
         f.write(f"Average SSIM: {avg_ssim:.4f}\n")

@@ -100,7 +100,7 @@ def main():
         if args.test:
             ds = DualDegradationTestDataset(args.root)
             item = ds[0]
-            deg, clean, name = item
+            deg, clean, cat, scene, level = item
             print(f"\n  Test dataset item:")
             print(f"    category  : {cat}")
             print(f"    scene     : {scene}")
