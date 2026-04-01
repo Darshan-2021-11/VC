@@ -18,7 +18,7 @@ def get_args():
     p.add_argument("--test_dir", type=str, required=True)
     p.add_argument("--model_path", type=str, required=True)
     p.add_argument("--model_size", type=str, default="S", choices=["S","B","L"])
-    p.add_argument("--result_dir", type=str, default="./results_OTS")
+    p.add_argument("--result_dir", type=str, default="./results")
     p.add_argument("--save_images", action="store_true")
     p.add_argument("--tile", type=int, default=0)
     return p.parse_args()
@@ -85,7 +85,7 @@ def main():
     level_data = defaultdict(lambda: {"psnr":[], "ssim":[]})
 
     for idx in range(len(dataset)):
-        deg, clean, name = dataset[idx]
+        deg, clean, cat, scene, level = dataset[idx]
 
         restored = infer(model, deg.unsqueeze(0).to(device), args.tile)
 
