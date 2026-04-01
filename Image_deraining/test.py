@@ -126,6 +126,7 @@ for dataset in datasets:
 
             if isinstance(pred, (list, tuple)):
                 pred = pred[-1]   # take highest resolution
+            pred = pred[:, :, :h, :w]   # remove padding
 
             elapsed = time.time() - tm
             adder(elapsed)
