@@ -11,6 +11,7 @@ from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 from tqdm import tqdm
 import torch.nn.functional as f
+from skimage.metrics import peak_signal_noise_ratio, structural_similarity
 
 class DeblurDataset(Dataset):
     def __init__(self, image_dir, transform=None, is_test=False):
@@ -100,6 +101,9 @@ for dataset in datasets:
     dataloader = test_dataloader(os.path.join(args.data_dir, dataset), batch_size=1, num_workers=4)
     factor = 32
     with torch.no_grad():
+        psnr_total = 0
+        ssim_total = 0
+        count = 0
         psnr_adder = Adder()
 
 
@@ -118,7 +122,10 @@ for dataset in datasets:
 
             tm = time.time()
 
-            pred = model(input_img)[2]
+            pred = model(input_img)
+
+            if isinstance(pred, (list, tuple)):
+                pred = pred[-1]   # take highest resolution
 
             elapsed = time.time() - tm
             adder(elapsed)
@@ -127,6 +134,16 @@ for dataset in datasets:
 
             pred_numpy = pred_clip.squeeze(0).cpu().numpy()
             label_numpy = label_img.squeeze(0).cpu().numpy()
+            # Convert CHW → HWC
+            pred_np = pred_numpy.transpose(1, 2, 0)
+            label_np = label_numpy.transpose(1, 2, 0)
+
+            psnr = peak_signal_noise_ratio(label_np, pred_np, data_range=1.0)
+            ssim = structural_similarity(label_np, pred_np, channel_axis=2, data_range=1.0)
+
+            psnr_total += psnr
+            ssim_total += ssim
+            count += 1
 
             if args.save_image:
                 save_name = os.path.join(args.result_dir, dataset, name[0])
@@ -135,3 +152,6 @@ for dataset in datasets:
                 pred.save(save_name)
 
         print('==========================================================')
+    print(f"Dataset: {dataset}")
+    print(f"Average PSNR: {psnr_total / count:.4f}")
+    print(f"Average SSIM: {ssim_total / count:.4f}")
