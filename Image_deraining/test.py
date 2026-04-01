@@ -1,7 +1,7 @@
 import os
 import torch
 import argparse
-from models.SFNet import build_net
+from models.ConvIR import ConvIR
 from data import test_dataloader
 from utils import Adder
 import time
@@ -67,10 +67,11 @@ parser.add_argument('--test_model', type=str, default='/root/autodl-tmp/sfnet/de
 parser.add_argument('--save_image', type=bool, default=True, choices=[True, False])
 args = parser.parse_args()
 
-args.result_dir = os.path.join('results/', args.model_name, 'deraining/')
+base_dir = os.path.dirname(args.test_model)
+args.result_dir = os.path.join(base_dir, 'results/')
 
-if not os.path.exists('results/'):
-    os.makedirs(args.model_save_dir)
+if not os.path.exists(args.result_dir):
+    os.makedirs(args.result_dir)
 if not os.path.exists('results/' + args.model_name + '/'):
     os.makedirs('results/' + args.model_name + '/')
 if not os.path.exists(args.result_dir):
@@ -88,7 +89,9 @@ torch.cuda.empty_cache()
 adder = Adder()
 model.eval()
 
-datasets = ['Rain100L', 'Rain100H', 'Test100', 'Test1200', 'Test2800']
+#datasets = ['Rain100L', 'Rain100H', 'Test100', 'Test1200', 'Test2800']
+# currently we only check for Test100
+datasets = ['Test100']
 
 for dataset in datasets:
     if not os.path.exists(args.result_dir+dataset+'/'):
