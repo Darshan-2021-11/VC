@@ -25,7 +25,7 @@ def get_args():
     return p.parse_args()
 
 
-def pad_to_multiple(x, factor=8):
+def pad_to_multiple(x, factor=32):
     _, _, h, w = x.shape
     new_h = (h + factor - 1) // factor * factor
     new_w = (w + factor - 1) // factor * factor
