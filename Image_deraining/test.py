@@ -77,7 +77,7 @@ if not os.path.exists('results/' + args.model_name + '/'):
 if not os.path.exists(args.result_dir):
     os.makedirs(args.result_dir)
 
-model = build_net()
+model = ConvIR(num_res=16)
 
 if torch.cuda.is_available():
     model.cuda()
