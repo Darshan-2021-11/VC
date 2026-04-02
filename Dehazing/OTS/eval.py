@@ -58,7 +58,7 @@ def _eval(model, args):
             ssim_val = ssim(f.adaptive_avg_pool2d(pred_clip, (int(H / down_ratio), int(W / down_ratio))), 
                             f.adaptive_avg_pool2d(label_img, (int(H / down_ratio), int(W / down_ratio))), 
                             data_range=1, size_average=False)	
-            print('%d iter PSNR_dehazing: %.2f ssim: %f' % (iter_idx + 1, psnr_val, ssim_val))
+            print('%d iter PSNR_dehazing: %f ssim: %f' % (iter_idx + 1, psnr_val, ssim_val))
             ssim_adder(ssim_val)
 
             if args.save_image:
@@ -70,11 +70,11 @@ def _eval(model, args):
             psnr_mimo = peak_signal_noise_ratio(pred_numpy, label_numpy, data_range=1)
             psnr_adder(psnr_val)
 
-            print('%d iter PSNR: %.2f time: %f' % (iter_idx + 1, psnr_mimo, elapsed))
+            print('%d iter PSNR: %f time: %f' % (iter_idx + 1, psnr_mimo, elapsed))
 
         print('==========================================================')
-        print('The average PSNR is %.2f dB' % (psnr_adder.average()))
-        print('The average SSIM is %.4f dB' % (ssim_adder.average()))
+        print('The average PSNR is %f dB' % (psnr_adder.average()))
+        print('The average SSIM is %f dB' % (ssim_adder.average()))
 
         print("Average time: %f" % adder.average())
 

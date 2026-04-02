@@ -1,158 +1,110 @@
 import os
-import torch
+import sys
 import argparse
-from models.ConvIR import ConvIR
-from data import test_dataloader
-from utils import Adder
-import time
-from torchvision.transforms import functional as F
-from skimage.metrics import peak_signal_noise_ratio
-from torch.utils.data import Dataset, DataLoader
+import numpy as np
+import torch
+import torch.nn.functional as F
 from PIL import Image
-from tqdm import tqdm
-import torch.nn.functional as f
-from skimage.metrics import peak_signal_noise_ratio, structural_similarity
+from collections import defaultdict
+from skimage.metrics import peak_signal_noise_ratio as calc_psnr
+from skimage.metrics import structural_similarity as calc_ssim
 
-class DeblurDataset(Dataset):
-    def __init__(self, image_dir, transform=None, is_test=False):
-        self.image_dir = image_dir
-        self.image_list = os.listdir(os.path.join(image_dir, 'input/'))
-        self._check_image(self.image_list)
-        self.image_list.sort()
-        self.transform = transform
-        self.is_test = is_test
-
-    def __len__(self):
-        return len(self.image_list)
-
-    def __getitem__(self, idx):
-        image = Image.open(os.path.join(self.image_dir, 'input', self.image_list[idx]))
-        label = Image.open(os.path.join(self.image_dir, 'target', self.image_list[idx]))
-
-        if self.transform:
-            image, label = self.transform(image, label)
-        else:
-            image = F.to_tensor(image)
-            label = F.to_tensor(label)
-        if self.is_test:
-            name = self.image_list[idx]
-            return image, label, name
-        return image, label
-
-    @staticmethod
-    def _check_image(lst):
-        for x in lst:
-            splits = x.split('.')
-            if splits[-1] not in ['png', 'jpg', 'jpeg']:
-                raise ValueError
-
-def test_dataloader(path, batch_size=1, num_workers=0):
-    dataloader = DataLoader(
-        DeblurDataset(path, is_test=True),
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True
-    )
-
-    return dataloader
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from models.ConvIR import ConvIR
+from dataset import DualDegradationTestDataset
 
 
-parser = argparse.ArgumentParser()
+def get_args():
+    p = argparse.ArgumentParser()
+    p.add_argument("--test_dir", type=str, required=True)
+    p.add_argument("--model_path", type=str, required=True)
+    p.add_argument("--model_size", type=str, default="S", choices=["S","B","L"])
+    p.add_argument("--result_dir", type=str, default="./results")
+    p.add_argument("--save_images", action="store_true")
+    return p.parse_args()
 
-# Directories
-parser.add_argument('--model_name', default='SFNet', type=str)
-parser.add_argument('--data_dir', type=str, default='/root/autodl-tmp/deraining_testset')
 
-parser.add_argument('--test_model', type=str, default='/root/autodl-tmp/sfnet/deraining.pkl')
-parser.add_argument('--save_image', type=bool, default=True, choices=[True, False])
-args = parser.parse_args()
-
-base_dir = os.path.dirname(args.test_model)
-args.result_dir = os.path.join(base_dir, 'results/')
-
-if not os.path.exists(args.result_dir):
-    os.makedirs(args.result_dir)
-if not os.path.exists('results/' + args.model_name + '/'):
-    os.makedirs('results/' + args.model_name + '/')
-if not os.path.exists(args.result_dir):
-    os.makedirs(args.result_dir)
-
-model = ConvIR(num_res=16)
-
-if torch.cuda.is_available():
-    model.cuda()
-
-state_dict = torch.load(args.test_model)
-model.load_state_dict(state_dict['model'])
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-torch.cuda.empty_cache()
-adder = Adder()
-model.eval()
-
-#datasets = ['Rain100L', 'Rain100H', 'Test100', 'Test1200', 'Test2800']
-# currently we only check for Test100
-datasets = ['Test100']
-
-for dataset in datasets:
-    if not os.path.exists(args.result_dir+dataset+'/'):
-        os.makedirs(args.result_dir+dataset)
-    print(args.result_dir+dataset)
-    dataloader = test_dataloader(os.path.join(args.data_dir, dataset), batch_size=1, num_workers=4)
-    factor = 32
+def infer(model, inp):
     with torch.no_grad():
-        psnr_total = 0
-        ssim_total = 0
-        count = 0
-        psnr_adder = Adder()
+        out = model(inp)
+    return out[-1] if isinstance(out,(list,tuple)) else out
 
 
-        # Main Evaluation
-        for iter_idx, data in enumerate(tqdm(dataloader), 0):
-            input_img, label_img, name = data
-
-            input_img = input_img.to(device)
-
-            h, w = input_img.shape[2], input_img.shape[3]
-            H, W = ((h+factor)//factor)*factor, ((w+factor)//factor*factor)
-            padh = H-h if h%factor!=0 else 0
-            padw = W-w if w%factor!=0 else 0
-            input_img = f.pad(input_img, (0, padw, 0, padh), 'reflect')
+def tensor_to_uint8(t):
+    return (t.squeeze(0).clamp(0,1).permute(1,2,0).cpu().numpy()*255).astype(np.uint8)
 
 
-            tm = time.time()
+def main():
+    args = get_args()
 
-            pred = model(input_img)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    NUM_RES = {"S":8,"B":16,"L":20}[args.model_size]
 
-            if isinstance(pred, (list, tuple)):
-                pred = pred[-1]   # take highest resolution
-            pred = pred[:, :, :h, :w]   # remove padding
+    model = ConvIR(num_res=NUM_RES).to(device)
 
-            elapsed = time.time() - tm
-            adder(elapsed)
+    ckpt = torch.load(args.model_path, map_location=device, weights_only=False)
+    if isinstance(ckpt, dict) and "model" in ckpt:
+        model.load_state_dict(ckpt["model"])
+    else:
+        model.load_state_dict(ckpt)
 
-            pred_clip = torch.clamp(pred, 0, 1)
+    model.eval()
 
-            pred_numpy = pred_clip.squeeze(0).cpu().numpy()
-            label_numpy = label_img.squeeze(0).cpu().numpy()
-            # Convert CHW → HWC
-            pred_np = pred_numpy.transpose(1, 2, 0)
-            label_np = label_numpy.transpose(1, 2, 0)
+    print(f"Loaded : {args.model_path}")
+    print(f"Device : {device}")
 
-            psnr = peak_signal_noise_ratio(label_np, pred_np, data_range=1.0)
-            ssim = structural_similarity(label_np, pred_np, channel_axis=2, data_range=1.0)
+    os.makedirs(args.result_dir, exist_ok=True)
 
-            psnr_total += psnr
-            ssim_total += ssim
-            count += 1
+    dataset = DualDegradationTestDataset(args.test_dir)
 
-            if args.save_image:
-                save_name = os.path.join(args.result_dir, dataset, name[0])
-                pred_clip += 0.5 / 255
-                pred = F.to_pil_image(pred_clip.squeeze(0).cpu(), 'RGB')
-                pred.save(save_name)
+    psnr_list = []
+    ssim_list = []
 
-        print('==========================================================')
-    print(f"Dataset: {dataset}")
-    print(f"Average PSNR: {psnr_total / count:.4f}")
-    print(f"Average SSIM: {ssim_total / count:.4f}")
+    for idx in range(len(dataset)):
+        deg, clean, cat, scene, level = dataset[idx]
+
+        inp = deg.unsqueeze(0).to(device)
+
+        # 🔥 FIX: resize to training resolution (256)
+        orig_h, orig_w = inp.shape[-2:]
+        inp_resized = F.interpolate(inp, size=(256, 256), mode='bilinear', align_corners=False)
+
+        # inference
+        restored = infer(model, inp_resized)
+
+        # 🔥 resize back
+        restored = F.interpolate(restored, size=(orig_h, orig_w), mode='bilinear', align_corners=False)
+
+        r_u8 = tensor_to_uint8(restored)
+        c_u8 = tensor_to_uint8(clean.unsqueeze(0))
+
+        psnr = calc_psnr(c_u8, r_u8, data_range=255)
+        ssim = calc_ssim(c_u8, r_u8, data_range=255, channel_axis=2)
+
+        psnr_list.append(psnr)
+        ssim_list.append(ssim)
+
+        if args.save_images:
+            save_dir = os.path.join(args.result_dir, cat, scene)
+            os.makedirs(save_dir, exist_ok=True)
+            Image.fromarray(r_u8).save(
+                    os.path.join(save_dir, f"{level}_restored.png")
+                    )
+
+        if (idx+1) % 20 == 0:
+            print(f"Processed {idx+1}/{len(dataset)}")
+
+    avg_psnr = np.mean(psnr_list)
+    avg_ssim = np.mean(ssim_list)
+
+    print(f"\nFINAL RESULTS:")
+    print(f"PSNR: {avg_psnr:.4f}")
+    print(f"SSIM: {avg_ssim:.4f}")
+
+    with open(os.path.join(args.result_dir, "metrics.txt"), "w") as f:
+        f.write(f"Average PSNR: {avg_psnr:.4f}\n")
+        f.write(f"Average SSIM: {avg_ssim:.4f}\n")
+
+
+if __name__ == "__main__":
+    main()
