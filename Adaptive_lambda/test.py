@@ -27,6 +27,17 @@ def get_args():
     return p.parse_args()
 
 
+def load_model_weights(model, path, device):
+    print(f"Loading model from: {path}")
+    ckpt = torch.load(path, map_location=device)
+
+    # 🔥 FIX: handle both checkpoint and raw weights
+    if isinstance(ckpt, dict) and "model" in ckpt:
+        model.load_state_dict(ckpt["model"])
+    else:
+        model.load_state_dict(ckpt)
+
+
 def main():
     args = get_args()
 
@@ -35,15 +46,14 @@ def main():
     NUM_RES = {"S":8,"B":16,"L":20}[args.model_size]
     model = ConvIR(num_res=NUM_RES).to(device)
 
-    print(f"Loading model from: {args.model_path}")
-    model.load_state_dict(torch.load(args.model_path, map_location=device))
+    load_model_weights(model, args.model_path, device)
     model.eval()
 
     dataset = DualDegradationTestDataset(args.test_dir)
 
     os.makedirs(args.result_dir, exist_ok=True)
 
-    # 🔥 CSV logging
+    # CSV logging
     csv_path = os.path.join(args.result_dir, "metrics.csv")
     with open(csv_path, "w") as f:
         writer = csv.writer(f)
@@ -78,7 +88,7 @@ def main():
             writer = csv.writer(f)
             writer.writerow([image_name, p, s])
 
-        # optionally save images
+        # save output images
         if args.save_images:
             save_path = os.path.join(args.result_dir, image_name + ".png")
             Image.fromarray(r).save(save_path)
@@ -86,7 +96,7 @@ def main():
         if i % 20 == 0:
             print(f"[{i}/{len(dataset)}] {image_name} | PSNR: {p:.2f} | SSIM: {s:.3f}")
 
-    # 🔥 Final metrics
+    # final results
     mean_psnr = np.mean(psnr_list)
     mean_ssim = np.mean(ssim_list)
 
@@ -94,7 +104,7 @@ def main():
     print(f"PSNR: {mean_psnr:.4f}")
     print(f"SSIM: {mean_ssim:.4f}")
 
-    # 🔥 Save summary
+    # save summary
     summary_path = os.path.join(args.result_dir, "summary.txt")
     with open(summary_path, "w") as f:
         f.write("FINAL RESULTS\n")
