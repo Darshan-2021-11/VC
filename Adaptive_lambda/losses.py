@@ -2,15 +2,42 @@ import torch
 import torch.nn.functional as F
 
 
-def compute_spatial_lambda(inp):
-    mean = F.avg_pool2d(inp, kernel_size=7, stride=1, padding=3)
-    var = F.avg_pool2d((inp - mean) ** 2, kernel_size=7, stride=1, padding=3)
+def compute_adaptive_lambda(pred, target):
+    """
+    Adaptive lambda based on reconstruction error.
+    If high-frequency error is large → increase lambda
+    """
 
-    var = var.mean(dim=1, keepdim=True)
-    var = var / (var.max().detach() + 1e-6)
+    # spatial error
+    err = torch.abs(pred - target)
 
-    lam_map = 0.05 + 0.15 * var
-    return lam_map
+    # focus on high-frequency error via Laplacian
+    kernel = torch.tensor(
+            [[0, -1, 0],
+             [-1, 4, -1],
+             [0, -1, 0]],
+            dtype=pred.dtype,
+            device=pred.device
+            ).view(1, 1, 3, 3)
+
+    kernel = kernel.repeat(pred.shape[1], 1, 1, 1)
+
+    hf_err = F.conv2d(err, kernel, padding=1, groups=pred.shape[1])
+    hf_err = torch.abs(hf_err)
+
+    # global magnitude of HF error
+    hf_score = hf_err.mean(dim=[1,2,3], keepdim=True)
+
+    # normalize across batch
+    hf_min = hf_score.min().detach()
+    hf_max = hf_score.max().detach()
+
+    hf_norm = (hf_score - hf_min) / (hf_max - hf_min + 1e-6)
+
+    # map to λ range
+    lam = 0.05 + 0.25 * hf_norm   # adaptive
+
+    return lam
 
 
 def dual_domain_loss(pred, target, adaptive=True):
@@ -25,8 +52,8 @@ def dual_domain_loss(pred, target, adaptive=True):
     l_freq = F.l1_loss(pred_ri, target_ri) / pred_ri.numel()
 
     if adaptive:
-        lam_map = compute_spatial_lambda(pred.detach())
-        lam = lam_map.mean().clamp(0.05, 0.15)
+        lam = compute_adaptive_lambda(pred.detach(), target.detach())
+        lam = lam.mean().clamp(0.05, 0.30)
     else:
         lam = 0.1
 
