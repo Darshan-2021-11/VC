@@ -1,56 +1,4 @@
-import os
-import torch
-import numpy as np
-from PIL import Image
-from torch.utils.data import Dataset
-
-
-# =========================
-# TRAIN DATASET (UNCHANGED)
-# =========================
-
-class DualDegradationDataset(Dataset):
-    def __init__(self, root_dir):
-        self.samples = []
-
-        for cat in os.listdir(root_dir):
-            cat_path = os.path.join(root_dir, cat)
-            if not os.path.isdir(cat_path):
-                continue
-
-            for scene in os.listdir(cat_path):
-                scene_path = os.path.join(cat_path, scene)
-                if not os.path.isdir(scene_path):
-                    continue
-
-                input_path = os.path.join(scene_path, "0.png")
-                target_path = os.path.join(scene_path, "1.png")
-
-                if os.path.exists(input_path) and os.path.exists(target_path):
-                    self.samples.append((input_path, target_path))
-
-        print(f"[DualDegradationDataset] Loaded {len(self.samples)} samples")
-
-    def __len__(self):
-        return len(self.samples)
-
-    def __getitem__(self, idx):
-        input_path, target_path = self.samples[idx]
-
-        deg = Image.open(input_path).convert("RGB")
-        clean = Image.open(target_path).convert("RGB")
-
-        deg = torch.from_numpy(np.array(deg)).permute(2,0,1).float()/255.
-        clean = torch.from_numpy(np.array(clean)).permute(2,0,1).float()/255.
-
-        return deg, clean
-
-
-# =========================
-# TEST DATASET (FIXED)
-# =========================
-
-class DualDegradationTestDataset(Dataset):
+class DualDegradationTestDataset:
     def __init__(self, root_dir):
         self.samples = []
 
@@ -71,7 +19,7 @@ class DualDegradationTestDataset(Dataset):
                     continue
 
                 input_path = os.path.join(scene_path, "0.png")
-                target_path = os.path.join(scene_path, "9.png")   # 🔥 FIX HERE
+                target_path = os.path.join(scene_path, "1.png")   # ✅ FIXED HERE
 
                 if os.path.exists(input_path) and os.path.exists(target_path):
                     self.samples.append((input_path, target_path, cat, scene))
