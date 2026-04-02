@@ -86,6 +86,7 @@ def main():
     start_epoch = 1
     if args.drive_dir and os.path.isdir(args.drive_dir):
         ckpts = sorted([f for f in os.listdir(args.drive_dir) if f.endswith(".pth")])
+        ckpts = sorted(ckpts, key=lambda x: int(x[6:-4]))
         if ckpts:
             last_ckpt = os.path.join(args.drive_dir, ckpts[-1])
             print(f"Resuming from {last_ckpt}")
