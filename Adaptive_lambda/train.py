@@ -26,8 +26,8 @@ def get_args():
     p.add_argument("--lr", type=float, default=1e-4)
 
     p.add_argument("--save_dir", type=str, default="./checkpoints")
-    p.add_argument("--drive_dir", type=str, default="/content/drive/MyDrive/ConvIR_checkpoints/adaptive_lambda")  # Google Drive path
-    p.add_argument("--save_every", type=int, default=1)
+    p.add_argument("--drive_dir", type=str, default="")
+    p.add_argument("--save_every", type=int, default=2)
 
     p.add_argument("--fixed_lambda", action="store_true")
 
@@ -48,11 +48,15 @@ def main():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    print(f"Device: {device}")
+
     NUM_RES = {"S":8,"B":16,"L":20}[args.model_size]
     model = ConvIR(num_res=NUM_RES).to(device)
 
     dataset = DualDegradationDataset(args.train_dir)
-    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+    loader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True, num_workers=0)
+
+    print(f"Total steps per epoch: {len(loader)}")
 
     optimizer = Adam(model.parameters(), lr=args.lr)
     scheduler = CosineAnnealingLR(optimizer, T_max=args.num_epochs)
@@ -63,18 +67,20 @@ def main():
 
     log_file = os.path.join(args.save_dir, "train_log.csv")
 
-    # create CSV header
     if not os.path.exists(log_file):
         with open(log_file, "w") as f:
             writer = csv.writer(f)
             writer.writerow(["epoch", "loss", "lambda"])
 
+    print("\n========== TRAINING START ==========\n")
+
     for epoch in range(1, args.num_epochs+1):
         model.train()
+
         total_loss = 0
         total_lambda = 0
 
-        for deg, clean in loader:
+        for step, (deg, clean) in enumerate(loader, 1):
             deg, clean = deg.to(device), clean.to(device)
 
             optimizer.zero_grad()
@@ -85,7 +91,7 @@ def main():
                 lam_val = 0
 
                 for p in pred:
-                    target_resized = F.interpolate(clean, size=p.shape[-2:], mode='bilinear')
+                    target_resized = F.interpolate(clean, size=p.shape[-2:], mode='bilinear', align_corners=False)
                     l, lam = dual_domain_loss(p, target_resized, adaptive=not args.fixed_lambda)
                     loss += l
                     lam_val += lam
@@ -101,30 +107,41 @@ def main():
             total_loss += loss.item()
             total_lambda += lam_val
 
+            if step % 50 == 0 or step == len(loader):
+                print(f"Epoch {epoch}/{args.num_epochs} "
+                      f"| Step {step}/{len(loader)} "
+                      f"| Loss {loss.item():.4f} "
+                      f"| Lambda {lam_val:.4f}")
+
         scheduler.step()
 
         avg_loss = total_loss / len(loader)
         avg_lambda = total_lambda / len(loader)
 
-        print(f"Epoch {epoch} | Loss {avg_loss:.4f} | Lambda {avg_lambda:.4f}")
+        print(f"\nEpoch {epoch} completed "
+              f"| Avg Loss: {avg_loss:.4f} "
+              f"| Avg Lambda: {avg_lambda:.4f}\n")
 
-        # save log
         with open(log_file, "a") as f:
             writer = csv.writer(f)
             writer.writerow([epoch, avg_loss, avg_lambda])
 
-        # save checkpoint
         if epoch % args.save_every == 0:
-            ckpt_path = os.path.join(args.save_dir, f"epoch_{epoch}.pth")
-            save_checkpoint(model, optimizer, epoch, avg_loss, ckpt_path)
+            local_path = os.path.join(args.save_dir, f"epoch_{epoch}.pth")
+            save_checkpoint(model, optimizer, epoch, avg_loss, local_path)
+
+            print(f"Checkpoint saved: {local_path}")
 
             if args.drive_dir:
                 drive_path = os.path.join(args.drive_dir, f"epoch_{epoch}.pth")
                 save_checkpoint(model, optimizer, epoch, avg_loss, drive_path)
                 print(f"Saved to Drive: {drive_path}")
 
-    # final save
-    torch.save(model.state_dict(), os.path.join(args.save_dir, "final_model.pth"))
+    final_path = os.path.join(args.save_dir, "final_model.pth")
+    torch.save(model.state_dict(), final_path)
+
+    print("\nTraining complete.")
+    print(f"Final model saved at: {final_path}")
 
 
 if __name__ == "__main__":
